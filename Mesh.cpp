@@ -1,15 +1,15 @@
 
 #include "Mesh.h"
 
+#include <cstddef>
 #include <stdexcept>
 
 Mesh::Mesh(
-    const std::vector<glm::vec3>& positions,
-    const std::vector<std::uint32_t>& indices
-)
+    const std::vector<Vertex>& vertices,
+    const std::vector<std::uint32_t>& indices)
 {
-    if (positions.empty() || indices.empty())
-        throw std::runtime_error("Mesh data is empty");
+    if (vertices.empty() || indices.empty())
+        throw std::runtime_error("Empty mesh");
 
     indexCount = static_cast<GLsizei>(indices.size());
 
@@ -19,16 +19,14 @@ Mesh::Mesh(
 
     glBindVertexArray(VAO);
 
-    // 정점 버퍼
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(
         GL_ARRAY_BUFFER,
-        positions.size() * sizeof(glm::vec3),
-        positions.data(),
+        vertices.size() * sizeof(Vertex),
+        vertices.data(),
         GL_STATIC_DRAW
     );
 
-    // 인덱스 버퍼
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
     glBufferData(
         GL_ELEMENT_ARRAY_BUFFER,
@@ -37,17 +35,29 @@ Mesh::Mesh(
         GL_STATIC_DRAW
     );
 
-    // location = 0: Position
+    // Position
     glVertexAttribPointer(
-        0,
-        3,
-        GL_FLOAT,
-        GL_FALSE,
-        sizeof(glm::vec3),
-        nullptr
+        0, 3, GL_FLOAT, GL_FALSE,
+        sizeof(Vertex),
+        (void*)offsetof(Vertex, position)
     );
-
     glEnableVertexAttribArray(0);
+
+    // Normal
+    glVertexAttribPointer(
+        1, 3, GL_FLOAT, GL_FALSE,
+        sizeof(Vertex),
+        (void*)offsetof(Vertex, normal)
+    );
+    glEnableVertexAttribArray(1);
+
+    // Texture Coordinates
+    glVertexAttribPointer(
+        2, 2, GL_FLOAT, GL_FALSE,
+        sizeof(Vertex),
+        (void*)offsetof(Vertex, texCoord)
+    );
+    glEnableVertexAttribArray(2);
 
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);

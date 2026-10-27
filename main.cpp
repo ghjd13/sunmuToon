@@ -55,7 +55,7 @@ int main()
         Camera camera;
 
         // 외부 GLB 모델 로딩
-        GltfModel model("models/Box.glb");
+        GltfModel model("models/BoxTextured.glb");
 
         while (!glfwWindowShouldClose(window))
         {

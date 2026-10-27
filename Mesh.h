@@ -7,11 +7,18 @@
 #include <vector>
 #include <cstdint>
 
+struct Vertex
+{
+    glm::vec3 position;
+    glm::vec3 normal;
+    glm::vec2 texCoord;
+};
+
 class Mesh
 {
 public:
     Mesh(
-        const std::vector<glm::vec3>& positions,
+        const std::vector<Vertex>& vertices,
         const std::vector<std::uint32_t>& indices
     );
 

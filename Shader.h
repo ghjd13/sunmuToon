@@ -22,4 +22,11 @@ public:
     // 행렬을 GLSL uniform으로 전달
     void setMat4(const std::string& name,
         const glm::mat4& matrix) const;
+
+    void setInt(const std::string& name, int value) const;
+
+    void setVec4(
+        const std::string& name,
+        const glm::vec4& value
+    ) const;
 };
