@@ -18,7 +18,7 @@ Texture2D::Texture2D(
         throw std::runtime_error("Invalid image data");
 
     // glTF UV 좌표계에 맞게 이미지 방향 변환
-    stbi_set_flip_vertically_on_load(true);
+    stbi_set_flip_vertically_on_load(false);
 
     int width = 0;
     int height = 0;
@@ -42,7 +42,7 @@ Texture2D::Texture2D(
 
 Texture2D::Texture2D(const std::string& path)
 {
-    stbi_set_flip_vertically_on_load(true);
+    stbi_set_flip_vertically_on_load(false);
 
     int width = 0;
     int height = 0;

@@ -12,7 +12,7 @@
 #include <iostream>
 #include <exception>
 
-int main()
+int main(int argc, char** argv)
 {
     if (!glfwInit()) {
         std::cerr << "GLFW initialization failed\n";
@@ -55,7 +55,15 @@ int main()
         Camera camera;
 
         // 외부 GLB 모델 로딩
-        GltfModel model("models/BoxTextured.glb");
+        std::string modelPath =
+            (argc > 1)
+            ? argv[1]
+            : "models/test.vrm";
+
+        std::cout << "Loading model: "
+            << modelPath << '\n';
+
+        GltfModel model(modelPath);
 
         while (!glfwWindowShouldClose(window))
         {

@@ -87,6 +87,48 @@ GltfModel::GltfModel(const std::string& path)
     if (result != cgltf_result_success)
         throw std::runtime_error("Buffer load failed");
 
+
+    std::cout << "\n===== Model Information =====\n";
+
+    std::cout << "Nodes: "
+        << data->nodes_count << '\n';
+
+    std::cout << "Meshes: "
+        << data->meshes_count << '\n';
+
+    std::cout << "Materials: "
+        << data->materials_count << '\n';
+
+    std::cout << "Textures: "
+        << data->textures_count << '\n';
+
+    std::cout << "Skins: "
+        << data->skins_count << '\n';
+
+    // 스켈레톤 정보 출력
+    for (cgltf_size i = 0; i < data->skins_count; ++i)
+    {
+        const cgltf_skin& skin = data->skins[i];
+
+        std::cout << "Skin " << i
+            << " - Joint Count: "
+            << skin.joints_count << '\n';
+
+        for (cgltf_size j = 0; j < skin.joints_count; ++j)
+        {
+            const cgltf_node* joint = skin.joints[j];
+
+            if (!joint)
+                continue;
+
+            std::cout << "  Joint " << j << ": "
+                << (joint->name ? joint->name : "Unnamed")
+                << '\n';
+        }
+    }
+
+    std::cout << "=============================\n";
+
     // 동일한 이미지를 여러 번 로드하지 않음
     std::unordered_map<
         const cgltf_image*,
