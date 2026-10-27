@@ -7,6 +7,9 @@
 
 #include <glm/gtc/type_ptr.hpp>
 
+#include <glm/gtc/matrix_transform.hpp>
+#include <array>
+#include <functional>
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
@@ -17,6 +20,8 @@
 
 namespace
 {
+    constexpr std::size_t MAX_JOINTS = 128;
+
     std::shared_ptr<Texture2D> loadImage(
         const cgltf_image* image,
         const std::string& modelPath)
@@ -87,6 +92,103 @@ GltfModel::GltfModel(const std::string& path)
     if (result != cgltf_result_success)
         throw std::runtime_error("Buffer load failed");
 
+
+    // ===== 노드 계층 구조 저장 =====
+
+    nodeLocalTransforms.reserve(data->nodes_count);
+    nodeParents.reserve(data->nodes_count);
+
+    for (cgltf_size i = 0; i < data->nodes_count; ++i)
+    {
+        const cgltf_node& node = data->nodes[i];
+
+        float localMatrix[16]{};
+        cgltf_node_transform_local(&node, localMatrix);
+
+        nodeLocalTransforms.push_back(
+            glm::make_mat4(localMatrix)
+        );
+
+        int parentIndex = -1;
+
+        if (node.parent) {
+            parentIndex = static_cast<int>(
+                node.parent - data->nodes
+                );
+        }
+
+        nodeParents.push_back(parentIndex);
+
+        // 이번 테스트에서 움직일 왼팔 본
+        if (node.name &&
+            std::string(node.name) == "J_Bip_L_UpperArm")
+        {
+            leftUpperArmNode = static_cast<int>(i);
+        }
+    }
+
+    // ===== Skin 정보 저장 =====
+
+    skins.reserve(data->skins_count);
+
+    for (cgltf_size s = 0; s < data->skins_count; ++s)
+    {
+        const cgltf_skin& source = data->skins[s];
+
+        if (source.joints_count > MAX_JOINTS) {
+            throw std::runtime_error(
+                "Skin exceeds maximum joint count"
+            );
+        }
+
+        Skin skin;
+
+        if (source.inverse_bind_matrices &&
+            source.inverse_bind_matrices->count <
+            source.joints_count)
+        {
+            throw std::runtime_error(
+                "Invalid inverse bind matrix count"
+            );
+        }
+
+        for (cgltf_size j = 0;
+            j < source.joints_count; ++j)
+        {
+            std::size_t nodeIndex =
+                static_cast<std::size_t>(
+                    source.joints[j] - data->nodes
+                    );
+
+            skin.jointNodes.push_back(nodeIndex);
+
+            glm::mat4 inverseBind(1.0f);
+
+            if (source.inverse_bind_matrices)
+            {
+                float matrix[16]{};
+
+                if (!cgltf_accessor_read_float(
+                    source.inverse_bind_matrices,
+                    j,
+                    matrix,
+                    16))
+                {
+                    throw std::runtime_error(
+                        "Failed to read inverse bind matrix"
+                    );
+                }
+
+                inverseBind = glm::make_mat4(matrix);
+            }
+
+            skin.inverseBinds.push_back(inverseBind);
+        }
+
+        skins.push_back(std::move(skin));
+    }
+
+    std::cout << "Skeleton data initialized\n";
 
     std::cout << "\n===== Model Information =====\n";
 
@@ -161,6 +263,43 @@ GltfModel::GltfModel(const std::string& path)
             if (primitive.type !=
                 cgltf_primitive_type_triangles)
                 continue;
+
+
+            const cgltf_accessor* joints =
+                cgltf_find_accessor(
+                    &primitive,
+                    cgltf_attribute_type_joints,
+                    0
+                );
+
+            const cgltf_accessor* weights =
+                cgltf_find_accessor(
+                    &primitive,
+                    cgltf_attribute_type_weights,
+                    0
+                );
+
+            std::cout << "\n--- Skinning Info ---\n";
+
+            std::cout << "Skinned Node: "
+                << (node.skin ? "Yes" : "No") << '\n';
+
+            std::cout << "JOINTS_0 Count: "
+                << (joints ? joints->count : 0) << '\n';
+
+            std::cout << "WEIGHTS_0 Count: "
+                << (weights ? weights->count : 0) << '\n';
+
+            if (node.skin) {
+                std::cout << "Skin Joint Count: "
+                    << node.skin->joints_count << '\n';
+
+                std::cout << "Inverse Bind Matrices: "
+                    << (node.skin->inverse_bind_matrices
+                        ? "Present" : "Not specified")
+                    << '\n';
+            }
+
 
             const cgltf_accessor* pos =
                 cgltf_find_accessor(
@@ -251,6 +390,63 @@ GltfModel::GltfModel(const std::string& path)
                     uvData[1]
                 );
 
+
+                // 정점별 본 인덱스와 가중치 읽기
+                if (node.skin && joints && weights)
+                {
+                    if (joints->count != pos->count ||
+                        weights->count != pos->count)
+                    {
+                        throw std::runtime_error(
+                            "Skin attribute count mismatch"
+                        );
+                    }
+
+                    cgltf_uint jointData[4]{};
+                    cgltf_float weightData[4]{};
+
+                    if (!cgltf_accessor_read_uint(
+                        joints, i, jointData, 4))
+                    {
+                        throw std::runtime_error(
+                            "Failed to read joint indices"
+                        );
+                    }
+
+                    if (!cgltf_accessor_read_float(
+                        weights, i, weightData, 4))
+                    {
+                        throw std::runtime_error(
+                            "Failed to read joint weights"
+                        );
+                    }
+
+                    for (int j = 0; j < 4; ++j)
+                    {
+                        if (jointData[j] >= node.skin->joints_count)
+                        {
+                            throw std::runtime_error(
+                                "Joint index out of range"
+                            );
+                        }
+                    }
+
+                    v.joints = glm::uvec4(
+                        jointData[0],
+                        jointData[1],
+                        jointData[2],
+                        jointData[3]
+                    );
+
+                    v.weights = glm::vec4(
+                        weightData[0],
+                        weightData[1],
+                        weightData[2],
+                        weightData[3]
+                    );
+                }
+
+
                 vertices.push_back(v);
             }
 
@@ -299,6 +495,12 @@ GltfModel::GltfModel(const std::string& path)
             );
 
             part.transform = transform;
+
+            part.nodeIndex = static_cast<int>(n);
+
+            part.skinIndex = node.skin
+                ? static_cast<int>(node.skin - data->skins)
+                : -1;
 
             // 머터리얼 정보
             if (primitive.material)
@@ -357,27 +559,164 @@ GltfModel::GltfModel(const std::string& path)
     std::cout << "glTF loaded: "
         << parts.size()
         << " mesh parts\n";
+
+
+    // GPU 스키닝 행렬용 UBO
+    glGenBuffers(1, &skinUBO);
+
+    glBindBuffer(GL_UNIFORM_BUFFER, skinUBO);
+
+    glBufferData(
+        GL_UNIFORM_BUFFER,
+        MAX_JOINTS * sizeof(glm::mat4),
+        nullptr,
+        GL_DYNAMIC_DRAW
+    );
+
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
 }
+
 
 void GltfModel::draw(
     const Shader& shader,
-    const glm::mat4& modelMatrix
+    const glm::mat4& modelMatrix,
+    float leftArmAngle
 ) const
 {
-    for (const Part& part : parts)
+    // 1. 현재 노드 월드 행렬 계산
+    std::vector<glm::mat4> world(
+        nodeLocalTransforms.size()
+    );
+
+    std::vector<int> state(
+        nodeLocalTransforms.size(), 0
+    );
+
+    std::function<void(int)> updateNode;
+
+    updateNode = [&](int index)
+        {
+            if (state[index] == 2)
+                return;
+
+            if (state[index] == 1)
+                throw std::runtime_error(
+                    "Cyclic node hierarchy"
+                );
+
+            state[index] = 1;
+
+            glm::mat4 local =
+                nodeLocalTransforms[index];
+
+            // 테스트용 왼쪽 위팔 회전
+            if (index == leftUpperArmNode)
+            {
+                local = local * glm::rotate(
+                    glm::mat4(1.0f),
+                    leftArmAngle,
+                    glm::vec3(0.0f, 0.0f, 1.0f)
+                );
+            }
+
+            int parent = nodeParents[index];
+
+            if (parent >= 0)
+            {
+                updateNode(parent);
+                world[index] = world[parent] * local;
+            }
+            else
+            {
+                world[index] = local;
+            }
+
+            state[index] = 2;
+        };
+
+    for (std::size_t i = 0;
+        i < world.size(); ++i)
     {
-        shader.setMat4(
-            "model",
-            modelMatrix * part.transform
+        updateNode(static_cast<int>(i));
+    }
+
+    // 2. UBO와 셰이더 연결
+    GLuint blockIndex = glGetUniformBlockIndex(
+        shader.ID, "SkinMatrices"
+    );
+
+    if (blockIndex == GL_INVALID_INDEX)
+        throw std::runtime_error(
+            "SkinMatrices uniform block not found"
         );
 
+    glUniformBlockBinding(
+        shader.ID, blockIndex, 0
+    );
+
+    glBindBufferBase(
+        GL_UNIFORM_BUFFER, 0, skinUBO
+    );
+
+    // 3. 메시별 스키닝 및 렌더링
+    for (const Part& part : parts)
+    {
+        glm::mat4 nodeWorld =
+            world[part.nodeIndex];
+
+        shader.setMat4(
+            "model",
+            modelMatrix * nodeWorld
+        );
+
+        if (part.skinIndex >= 0)
+        {
+            const Skin& skin =
+                skins[part.skinIndex];
+
+            std::array<glm::mat4, 128> palette;
+            palette.fill(glm::mat4(1.0f));
+
+            glm::mat4 inverseMesh =
+                glm::inverse(nodeWorld);
+
+            for (std::size_t j = 0;
+                j < skin.jointNodes.size(); ++j)
+            {
+                palette[j] =
+                    inverseMesh *
+                    world[skin.jointNodes[j]] *
+                    skin.inverseBinds[j];
+            }
+
+            glBindBuffer(
+                GL_UNIFORM_BUFFER, skinUBO
+            );
+
+            glBufferSubData(
+                GL_UNIFORM_BUFFER,
+                0,
+                sizeof(palette),
+                palette.data()
+            );
+
+            glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+            shader.setInt("useSkinning", 1);
+        }
+        else
+        {
+            shader.setInt("useSkinning", 0);
+        }
+
+        // 4. 기존 머터리얼 처리
         shader.setVec4(
             "baseColorFactor",
             part.baseColor
         );
 
         shader.setInt("baseTexture", 0);
-
         glActiveTexture(GL_TEXTURE0);
 
         if (part.texture)
@@ -395,4 +734,10 @@ void GltfModel::draw(
     }
 
     glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+GltfModel::~GltfModel()
+{
+    if (skinUBO != 0)
+        glDeleteBuffers(1, &skinUBO);
 }

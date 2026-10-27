@@ -59,6 +59,29 @@ Mesh::Mesh(
     );
     glEnableVertexAttribArray(2);
 
+
+    // location 3: Joint Indices
+    glVertexAttribIPointer(
+        3,
+        4,
+        GL_UNSIGNED_INT,
+        sizeof(Vertex),
+        (void*)offsetof(Vertex, joints)
+    );
+    glEnableVertexAttribArray(3);
+
+    // location 4: Joint Weights
+    glVertexAttribPointer(
+        4,
+        4,
+        GL_FLOAT,
+        GL_FALSE,
+        sizeof(Vertex),
+        (void*)offsetof(Vertex, weights)
+    );
+    glEnableVertexAttribArray(4);
+
+
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 }

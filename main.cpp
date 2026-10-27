@@ -12,6 +12,8 @@
 #include <iostream>
 #include <exception>
 
+#include <cmath>
+
 int main(int argc, char** argv)
 {
     if (!glfwInit()) {
@@ -120,7 +122,17 @@ int main(int argc, char** argv)
             );
 
             // GLB 모델 렌더링
-            model.draw(shader, modelMatrix);
+
+            // 시간에 따라 왼팔 회전
+            float time = static_cast<float>(glfwGetTime());
+
+            float armAngle =
+                glm::radians(25.0f) *
+                std::sin(time * 1.5f);
+
+            // GPU 스키닝 적용
+            model.draw(shader, modelMatrix, armAngle);
+
 
             glfwSwapBuffers(window);
         }

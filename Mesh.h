@@ -7,12 +7,18 @@
 #include <vector>
 #include <cstdint>
 
+
 struct Vertex
 {
     glm::vec3 position;
     glm::vec3 normal;
     glm::vec2 texCoord;
+
+    // GPU 스키닝용
+    glm::uvec4 joints{ 0 };
+    glm::vec4 weights{ 0.0f };
 };
+
 
 class Mesh
 {
