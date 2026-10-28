@@ -8,11 +8,12 @@
 #include "Shader.h"
 #include "Camera.h"
 #include "GltfModel.h"
+#include "Animator.h"
 
 #include <iostream>
 #include <exception>
 
-#include <cmath>
+#include <string>
 
 int main(int argc, char** argv)
 {
@@ -66,10 +67,41 @@ int main(int argc, char** argv)
             << modelPath << '\n';
 
         GltfModel model(modelPath);
+        Animator animator;
+
+        float lastTime = static_cast<float>(glfwGetTime());
 
         while (!glfwWindowShouldClose(window))
         {
             glfwPollEvents();
+
+
+            // Delta Time
+            float now = static_cast<float>(glfwGetTime());
+            float deltaTime = now - lastTime;
+            lastTime = now;
+
+            // 머리 회전 입력
+            float targetYaw = 0.0f;
+
+            if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
+                targetYaw += 25.0f;
+
+            if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
+                targetYaw -= 25.0f;
+
+            // 팔 움직임 입력
+            bool waving =
+                glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
+
+            // 현재 입력을 Skeleton에 적용
+            animator.update(
+                model.getSkeleton(),
+                deltaTime,
+                targetYaw,
+                waving
+            );
+
 
             if (glfwGetKey(window, GLFW_KEY_ESCAPE)
                 == GLFW_PRESS)
@@ -95,18 +127,8 @@ int main(int argc, char** argv)
 
             shader.use();
 
-            // 모델 회전
+            // 키보드 입력 테스트 중에는 모델 자체의 자동 회전을 끕니다.
             glm::mat4 modelMatrix(1.0f);
-
-            float angle =
-                static_cast<float>(glfwGetTime())
-                * glm::radians(35.0f);
-
-            modelMatrix = glm::rotate(
-                modelMatrix,
-                angle,
-                glm::vec3(0.0f, 1.0f, 0.0f)
-            );
 
             float aspect =
                 static_cast<float>(width) / height;
@@ -121,18 +143,8 @@ int main(int argc, char** argv)
                 camera.getProjectionMatrix(aspect)
             );
 
-            // GLB 모델 렌더링
-
-            // 시간에 따라 왼팔 회전
-            float time = static_cast<float>(glfwGetTime());
-
-            float armAngle =
-                glm::radians(25.0f) *
-                std::sin(time * 1.5f);
-
-            // GPU 스키닝 적용
-            model.draw(shader, modelMatrix, armAngle);
-
+            // Animator가 Skeleton에 적용한 자세를 렌더링
+            model.draw(shader, modelMatrix);
 
             glfwSwapBuffers(window);
         }
