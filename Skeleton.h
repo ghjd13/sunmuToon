@@ -30,6 +30,15 @@ public:
         const glm::quat& rotation
     );
 
+    // VRM 표준 Humanoid 역할(head, leftUpperArm 등)로 회전 지정
+    bool setHumanoidRotation(
+        const std::string& role,
+        const glm::quat& rotation
+    );
+
+    // 매핑되지 않은 본이면 -1
+    int humanoidNodeIndex(const std::string& role) const;
+
     // 전체 본 월드 행렬 갱신
     void update();
 
@@ -60,4 +69,7 @@ private:
 
     std::unordered_map<std::string, std::size_t>
         boneNames;
+
+    std::unordered_map<std::string, std::size_t>
+        humanoidBones;
 };

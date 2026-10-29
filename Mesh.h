@@ -35,10 +35,16 @@ public:
 
     void draw() const;
 
+    void updateVertices(
+        const std::vector<Vertex>& vertices
+    );
+
 private:
     GLuint VAO = 0;
     GLuint VBO = 0;
     GLuint EBO = 0;
 
     GLsizei indexCount = 0;
+
+    std::size_t vertexCount = 0;
 };

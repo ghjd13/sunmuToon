@@ -81,27 +81,49 @@ int main(int argc, char** argv)
             float deltaTime = now - lastTime;
             lastTime = now;
 
-            // 머리 회전 입력
-            float targetYaw = 0.0f;
+            // X=Pitch(상하), Y=Yaw(좌우), Z=Roll(기울기)
+            glm::vec3 targetHeadDegrees(0.0f);
 
             if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
-                targetYaw += 25.0f;
-
+                targetHeadDegrees.y += 25.0f;
             if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
-                targetYaw -= 25.0f;
+                targetHeadDegrees.y -= 25.0f;
+            if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
+                targetHeadDegrees.x += 15.0f;
+            if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
+                targetHeadDegrees.x -= 15.0f;
+            if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
+                targetHeadDegrees.z += 12.0f;
+            if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
+                targetHeadDegrees.z -= 12.0f;
 
-            // 팔 움직임 입력
-            bool waving =
+            const bool waving =
                 glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
 
-            // 현재 입력을 Skeleton에 적용
             animator.update(
                 model.getSkeleton(),
                 deltaTime,
-                targetYaw,
+                targetHeadDegrees.y,  // Yaw
+                targetHeadDegrees.x,  // Pitch
+                targetHeadDegrees.z,  // Roll
                 waving
             );
 
+
+            // ===== 얼굴 표정 테스트 =====
+
+            // B키: 눈 감기
+            float blinkWeight =
+                glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS
+                ? 1.0f : 0.0f;
+
+            // A키: 입 벌리기
+            float mouthWeight =
+                glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS
+                ? 1.0f : 0.0f;
+
+            // 얼굴 정점 갱신
+            model.updateFace(blinkWeight, mouthWeight);
 
             if (glfwGetKey(window, GLFW_KEY_ESCAPE)
                 == GLFW_PRESS)

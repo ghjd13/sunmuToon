@@ -7,6 +7,10 @@
 #include <functional>
 #include <stdexcept>
 #include <utility>
+#include <cstdint>
+#include <cstring>
+#include <iostream>
+#include <nlohmann/json.hpp>
 
 Skeleton::Skeleton(const cgltf_data* data)
 {
@@ -108,6 +112,98 @@ Skeleton::Skeleton(const cgltf_data* data)
         skins.push_back(std::move(skin));
     }
 
+    // 3. VRM 0.x / VRM 1.0 Humanoid 매핑 읽기
+    // cgltf는 미지원 확장 JSON을 data_extensions에 보관합니다.
+    const auto addHumanoidBone = [&](const std::string& role,
+                                      const nlohmann::json& indexJson)
+    {
+        if (!indexJson.is_number_integer())
+            return;
+
+        const std::int64_t index = indexJson.get<std::int64_t>();
+        if (index < 0 ||
+            static_cast<std::uint64_t>(index) >= nodeCount)
+            return;
+
+        humanoidBones.emplace(role, static_cast<std::size_t>(index));
+    };
+
+    std::string vrmVersion = "None";
+
+    for (cgltf_size i = 0; i < data->data_extensions_count; ++i)
+    {
+        const cgltf_extension& extension = data->data_extensions[i];
+        if (!extension.name || !extension.data)
+            continue;
+
+        const bool isVrm1 = std::strcmp(extension.name, "VRMC_vrm") == 0;
+        const bool isVrm0 = std::strcmp(extension.name, "VRM") == 0;
+        if (!isVrm1 && !isVrm0)
+            continue;
+
+        try
+        {
+            const auto json = nlohmann::json::parse(extension.data);
+            auto humanoid = json.find("humanoid");
+            if (humanoid == json.end() || !humanoid->is_object())
+                continue;
+
+            auto bones = humanoid->find("humanBones");
+            if (bones == humanoid->end())
+                continue;
+
+            if (isVrm1 && bones->is_object())
+            {
+                // VRM 1.0: { "head": { "node": 10 }, ... }
+                for (auto it = bones->begin(); it != bones->end(); ++it)
+                {
+                    const auto& boneInfo = it.value();
+                    if (!boneInfo.is_object())
+                        continue;
+
+                    auto node = boneInfo.find("node");
+                    if (node != boneInfo.end())
+                        addHumanoidBone(it.key(), *node);
+                }
+                vrmVersion = "1.0";
+            }
+            else if (isVrm0 && bones->is_array())
+            {
+                // VRM 0.x: [{ "bone": "head", "node": 10 }, ...]
+                for (const auto& boneInfo : *bones)
+                {
+                    if (!boneInfo.is_object())
+                        continue;
+
+                    auto role = boneInfo.find("bone");
+                    auto node = boneInfo.find("node");
+                    if (role != boneInfo.end() && role->is_string() &&
+                        node != boneInfo.end())
+                    {
+                        addHumanoidBone(role->get<std::string>(), *node);
+                    }
+                }
+                vrmVersion = "0.x";
+            }
+        }
+        catch (const nlohmann::json::exception& e)
+        {
+            throw std::runtime_error(
+                std::string("VRM humanoid JSON parse failed: ") + e.what()
+            );
+        }
+    }
+
+    std::cout << "VRM version: " << vrmVersion
+              << ", mapped humanoid bones: " << humanoidBones.size()
+              << '\n';
+
+    for (const char* role : { "head", "leftUpperArm", "rightUpperArm" })
+    {
+        std::cout << "  " << role << " -> node "
+                  << humanoidNodeIndex(role) << '\n';
+    }
+
     update();
 }
 
@@ -133,6 +229,27 @@ bool Skeleton::setRotation(
         glm::mat4_cast(glm::normalize(rotation));
 
     return true;
+}
+
+bool Skeleton::setHumanoidRotation(
+    const std::string& role,
+    const glm::quat& rotation)
+{
+    auto it = humanoidBones.find(role);
+    if (it == humanoidBones.end())
+        return false;
+
+    poseOffsets[it->second] =
+        glm::mat4_cast(glm::normalize(rotation));
+    return true;
+}
+
+int Skeleton::humanoidNodeIndex(const std::string& role) const
+{
+    auto it = humanoidBones.find(role);
+    if (it == humanoidBones.end())
+        return -1;
+    return static_cast<int>(it->second);
 }
 
 void Skeleton::update()

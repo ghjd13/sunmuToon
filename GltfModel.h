@@ -22,6 +22,8 @@ public:
     void draw(const Shader& shader, const glm::mat4& modelMatrix) const;
     Skeleton& getSkeleton();
 
+    void updateFace(float blinkWeight, float mouthWeight);
+
 private:
     struct Part
     {
@@ -31,6 +33,13 @@ private:
         glm::vec4 baseColor{1.0f};
         int nodeIndex = -1;
         int skinIndex = -1;
+
+        // Morph 적용 전의 원본 정점
+        std::vector<Vertex> baseVertices;
+
+        // 눈 감기와 입 벌리기의 POSITION 변화량
+        std::vector<glm::vec3> blinkDeltas;
+        std::vector<glm::vec3> mouthDeltas;
     };
 
     std::vector<Part> parts;

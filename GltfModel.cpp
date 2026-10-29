@@ -4,6 +4,9 @@
 
 #include <glm/gtc/type_ptr.hpp>
 
+#include <nlohmann/json.hpp>
+#include <cstring>
+
 #include <cstdint>
 #include <filesystem>
 #include <iostream>
@@ -87,6 +90,181 @@ GltfModel::GltfModel(const std::string& path)
     skeleton = std::make_unique<Skeleton>(data.get());
 
     std::cout << "Skeleton data initialized\n";
+
+
+    // ===== Morph Target 정보 검사 =====
+
+    std::cout << "\n===== Morph Target Information =====\n";
+
+    for (cgltf_size m = 0; m < data->meshes_count; ++m)
+    {
+        const cgltf_mesh& mesh = data->meshes[m];
+
+        std::cout << "Mesh " << m << ": "
+            << (mesh.name ? mesh.name : "Unnamed")
+            << '\n';
+
+        for (cgltf_size p = 0;
+            p < mesh.primitives_count; ++p)
+        {
+            const cgltf_primitive& primitive =
+                mesh.primitives[p];
+
+            std::cout << "  Primitive " << p
+                << " | Morph Targets: "
+                << primitive.targets_count
+                << '\n';
+
+            // 첫 번째 Morph Target의 POSITION 데이터 확인
+            if (primitive.targets_count > 0)
+            {
+                const cgltf_morph_target& target =
+                    primitive.targets[0];
+
+                for (cgltf_size a = 0;
+                    a < target.attributes_count; ++a)
+                {
+                    const cgltf_attribute& attribute =
+                        target.attributes[a];
+
+                    if (attribute.type ==
+                        cgltf_attribute_type_position &&
+                        attribute.data)
+                    {
+                        std::cout
+                            << "    Target 0 POSITION count: "
+                            << attribute.data->count << '\n';
+                    }
+                }
+            }
+        }
+    }
+
+    std::cout << "\n===== VRM Expressions =====\n";
+
+    for (cgltf_size e = 0;
+        e < data->data_extensions_count; ++e)
+    {
+        const cgltf_extension& extension =
+            data->data_extensions[e];
+
+        if (!extension.name || !extension.data)
+            continue;
+
+        if (std::strcmp(extension.name, "VRMC_vrm") != 0)
+            continue;
+
+        auto vrm = nlohmann::json::parse(
+            extension.data, nullptr, false
+        );
+
+        if (!vrm.is_object())
+        {
+            std::cout << "Invalid VRM expression JSON\n";
+            continue;
+        }
+
+        auto expressions = vrm.find("expressions");
+
+        if (expressions == vrm.end() ||
+            !expressions->is_object())
+        {
+            std::cout << "No expressions found\n";
+            continue;
+        }
+
+        for (const char* groupName : { "preset", "custom" })
+        {
+            auto group = expressions->find(groupName);
+
+            if (group == expressions->end() ||
+                !group->is_object())
+                continue;
+
+            for (auto it = group->begin();
+                it != group->end(); ++it)
+            {
+                if (!it.value().is_object())
+                    continue;
+
+                const auto& expression = it.value();
+
+                auto countBinds = [&](const char* name)
+                    {
+                        auto found = expression.find(name);
+
+                        return (found != expression.end() &&
+                            found->is_array())
+                            ? found->size()
+                            : std::size_t{ 0 };
+                    };
+
+                std::cout
+                    << "  " << groupName << "/" << it.key()
+                    << " | Morph: "
+                    << countBinds("morphTargetBinds")
+                    << " | Material: "
+                    << countBinds("materialColorBinds")
+                    << " | UV: "
+                    << countBinds("textureTransformBinds")
+                    << '\n';
+
+                // 표정별 Morph Target 연결 정보 확인
+                auto morphBinds = expression.find("morphTargetBinds");
+
+                if (morphBinds != expression.end() &&
+                    morphBinds->is_array())
+                {
+                    for (const auto& bind : *morphBinds)
+                    {
+                        if (!bind.is_object() ||
+                            !bind.contains("node") ||
+                            !bind.contains("index") ||
+                            !bind["node"].is_number_integer() ||
+                            !bind["index"].is_number_integer())
+                        {
+                            continue;
+                        }
+
+                        int nodeIndex = bind["node"].get<int>();
+                        int targetIndex = bind["index"].get<int>();
+
+                        float weight = 1.0f;
+                        if (bind.contains("weight") &&
+                            bind["weight"].is_number())
+                        {
+                            weight = bind["weight"].get<float>();
+                        }
+
+                        if (nodeIndex < 0 ||
+                            static_cast<cgltf_size>(nodeIndex) >=
+                            data->nodes_count)
+                        {
+                            std::cout << "    Invalid node\n";
+                            continue;
+                        }
+
+                        const cgltf_node& targetNode =
+                            data->nodes[nodeIndex];
+
+                        std::cout
+                            << "    Node: " << nodeIndex
+                            << " | Target: " << targetIndex
+                            << " | Weight: " << weight
+                            << " | Mesh: "
+                            << (targetNode.mesh && targetNode.mesh->name
+                                ? targetNode.mesh->name
+                                : "Unnamed")
+                            << '\n';
+                    }
+                }
+
+            }
+        }
+    }
+
+    std::cout << "===============================\n";
+
 
     std::cout << "\n===== Model Information =====\n";
 
@@ -400,6 +578,89 @@ GltfModel::GltfModel(const std::string& path)
                 ? static_cast<int>(node.skin - data->skins)
                 : -1;
 
+
+            // ===== 얼굴 Morph Target 로딩 =====
+            // 현재 test.vrm 전용 매핑
+            constexpr int FaceNode = 112;
+            constexpr int BlinkTarget = 13;
+            constexpr int MouthTarget = 39;
+
+            if (static_cast<int>(n) == FaceNode &&
+                primitive.targets_count > MouthTarget)
+            {
+                // Morph 적용 전 원본 정점 저장
+                part.baseVertices = vertices;
+
+                // 지정한 Morph Target의 위치 변화량 읽기
+                auto readMorphPositions =
+                    [&](int targetIndex,
+                        std::vector<glm::vec3>& output)
+                    {
+                        const cgltf_morph_target& target =
+                            primitive.targets[targetIndex];
+
+                        const cgltf_accessor* accessor = nullptr;
+
+                        for (cgltf_size a = 0;
+                            a < target.attributes_count; ++a)
+                        {
+                            const cgltf_attribute& attribute =
+                                target.attributes[a];
+
+                            if (attribute.type ==
+                                cgltf_attribute_type_position)
+                            {
+                                accessor = attribute.data;
+                                break;
+                            }
+                        }
+
+                        // POSITION 변화량이 없는 Morph는 건너뜀
+                        if (!accessor)
+                            return;
+
+                        if (accessor->count != vertices.size())
+                        {
+                            throw std::runtime_error(
+                                "Morph vertex count mismatch"
+                            );
+                        }
+
+                        output.resize(vertices.size());
+
+                        for (cgltf_size i = 0;
+                            i < accessor->count; ++i)
+                        {
+                            float delta[3]{};
+
+                            if (!cgltf_accessor_read_float(
+                                accessor, i, delta, 3))
+                            {
+                                throw std::runtime_error(
+                                    "Failed to read morph positions"
+                                );
+                            }
+
+                            output[i] = glm::vec3(
+                                delta[0],
+                                delta[1],
+                                delta[2]
+                            );
+                        }
+                    };
+
+                readMorphPositions(
+                    BlinkTarget,
+                    part.blinkDeltas
+                );
+
+                readMorphPositions(
+                    MouthTarget,
+                    part.mouthDeltas
+                );
+            }
+
+
             // 머터리얼 정보
             if (primitive.material)
             {
@@ -547,4 +808,52 @@ GltfModel::~GltfModel()
 {
     if (skinUBO != 0)
         glDeleteBuffers(1, &skinUBO);
+}
+
+
+void GltfModel::updateFace(
+    float blinkWeight,
+    float mouthWeight)
+{
+    blinkWeight = glm::clamp(
+        blinkWeight, 0.0f, 1.0f
+    );
+
+    mouthWeight = glm::clamp(
+        mouthWeight, 0.0f, 1.0f
+    );
+
+    for (Part& part : parts)
+    {
+        // 얼굴 Morph 데이터가 없는 메시 제외
+        if (part.baseVertices.empty())
+            continue;
+
+        // 항상 원본에서 계산하여 변형 누적 방지
+        std::vector<Vertex> deformed =
+            part.baseVertices;
+
+        for (std::size_t i = 0;
+            i < deformed.size(); ++i)
+        {
+            glm::vec3 delta(0.0f);
+
+            if (i < part.blinkDeltas.size())
+            {
+                delta +=
+                    part.blinkDeltas[i] * blinkWeight;
+            }
+
+            if (i < part.mouthDeltas.size())
+            {
+                delta +=
+                    part.mouthDeltas[i] * mouthWeight;
+            }
+
+            deformed[i].position += delta;
+        }
+
+        // 변경된 정점을 GPU에 전달
+        part.mesh->updateVertices(deformed);
+    }
 }

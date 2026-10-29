@@ -1,53 +1,87 @@
-
 #include "Animator.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-#include <cmath>
 #include <algorithm>
+#include <cmath>
+
 
 void Animator::update(
     Skeleton& skeleton,
     float deltaTime,
     float targetHeadYaw,
+    float targetHeadPitch,
+    float targetHeadRoll,
     bool waving)
 {
-    // 프레임 시간 안정화
     float dt = std::clamp(
         deltaTime, 0.0f, 0.05f
     );
 
-    // 부드러운 보간
-    float smooth = 1.0f - std::exp(-8.0f * dt);
+    float smooth =
+        1.0f - std::exp(-8.0f * dt);
 
+    // 각도 제한
     targetHeadYaw = std::clamp(
         targetHeadYaw, -30.0f, 30.0f
     );
 
-    headYaw += (targetHeadYaw - headYaw) * smooth;
+    targetHeadPitch = std::clamp(
+        targetHeadPitch, -20.0f, 20.0f
+    );
 
-    float targetWave = waving ? 1.0f : 0.0f;
+    targetHeadRoll = std::clamp(
+        targetHeadRoll, -20.0f, 20.0f
+    );
+
+    // 부드러운 움직임
+    headYaw +=
+        (targetHeadYaw - headYaw) * smooth;
+
+    headPitch +=
+        (targetHeadPitch - headPitch) * smooth;
+
+    headRoll +=
+        (targetHeadRoll - headRoll) * smooth;
+
+    float targetWave =
+        waving ? 1.0f : 0.0f;
 
     waveBlend +=
         (targetWave - waveBlend) * smooth;
 
     wavePhase += dt * 3.0f;
 
-    // 기본 자세로 초기화
     skeleton.resetPose();
 
-    // 머리 좌우 회전
-    glm::quat headRotation = glm::angleAxis(
+    // Yaw: Y축 회전
+    glm::quat yaw = glm::angleAxis(
         glm::radians(headYaw),
         glm::vec3(0.0f, 1.0f, 0.0f)
     );
 
-    skeleton.setRotation(
-        "J_Bip_C_Head", headRotation
+    // Pitch: X축 회전
+    glm::quat pitch = glm::angleAxis(
+        glm::radians(headPitch),
+        glm::vec3(1.0f, 0.0f, 0.0f)
     );
 
-    // 왼팔 움직임
+    // Roll: Z축 회전
+    glm::quat roll = glm::angleAxis(
+        glm::radians(headRoll),
+        glm::vec3(0.0f, 0.0f, 1.0f)
+    );
+
+    glm::quat headRotation =
+        glm::normalize(yaw * pitch * roll);
+
+    // VRM 표준 Humanoid 본 적용
+    skeleton.setHumanoidRotation(
+        "head", headRotation
+    );
+
+    // 왼팔 흔들기
     float armAngle =
         glm::radians(25.0f) *
         std::sin(wavePhase) *
@@ -58,10 +92,10 @@ void Animator::update(
         glm::vec3(0.0f, 0.0f, 1.0f)
     );
 
-    skeleton.setRotation(
-        "J_Bip_L_UpperArm", armRotation
+    skeleton.setHumanoidRotation(
+        "leftUpperArm", armRotation
     );
 
-    // 변경된 자세 반영
     skeleton.update();
 }
+

@@ -12,6 +12,7 @@ Mesh::Mesh(
         throw std::runtime_error("Empty mesh");
 
     indexCount = static_cast<GLsizei>(indices.size());
+    vertexCount = vertices.size();
 
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
@@ -24,7 +25,7 @@ Mesh::Mesh(
         GL_ARRAY_BUFFER,
         vertices.size() * sizeof(Vertex),
         vertices.data(),
-        GL_STATIC_DRAW
+        GL_DYNAMIC_DRAW
     );
 
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
@@ -105,4 +106,29 @@ void Mesh::draw() const
     );
 
     glBindVertexArray(0);
+}
+
+
+void Mesh::updateVertices(
+    const std::vector<Vertex>& vertices)
+{
+    if (vertices.size() != vertexCount)
+    {
+        throw std::runtime_error(
+            "Mesh vertex count mismatch"
+        );
+    }
+
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+
+    glBufferSubData(
+        GL_ARRAY_BUFFER,
+        0,
+        static_cast<GLsizeiptr>(
+            vertices.size() * sizeof(Vertex)
+            ),
+        vertices.data()
+    );
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
 }
