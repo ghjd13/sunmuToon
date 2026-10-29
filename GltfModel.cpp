@@ -313,6 +313,130 @@ GltfModel::GltfModel(const std::string& path)
         std::shared_ptr<Texture2D>
     > textureCache;
 
+
+    // ===== VRM 1.0 Expression 바인딩 읽기 =====
+
+    struct MorphBinding
+    {
+        int node = -1;
+        int index = -1;
+        float weight = 1.0f;
+    };
+
+    std::unordered_map<
+        std::string,
+        std::vector<MorphBinding>
+    > expressionBindings;
+
+    for (cgltf_size e = 0;
+        e < data->data_extensions_count; ++e)
+    {
+        const cgltf_extension& extension =
+            data->data_extensions[e];
+
+        if (!extension.name || !extension.data)
+            continue;
+
+        if (std::strcmp(extension.name, "VRMC_vrm") != 0)
+            continue;
+
+        auto root = nlohmann::json::parse(
+            extension.data, nullptr, false
+        );
+
+        if (!root.is_object())
+            throw std::runtime_error(
+                "Invalid VRM 1.0 extension JSON"
+            );
+
+        auto expressions = root.find("expressions");
+
+        if (expressions == root.end() ||
+            !expressions->is_object())
+            break;
+
+        auto preset = expressions->find("preset");
+
+        if (preset == expressions->end() ||
+            !preset->is_object())
+            break;
+
+        // 우선 사용할 세 가지 표정
+        for (const char* name : { "blink", "aa", "happy" })
+        {
+            auto expression = preset->find(name);
+
+            if (expression == preset->end() ||
+                !expression->is_object())
+                continue;
+
+            auto binds =
+                expression->find("morphTargetBinds");
+
+            if (binds == expression->end() ||
+                !binds->is_array())
+                continue;
+
+            for (const auto& bind : *binds)
+            {
+                if (!bind.is_object())
+                    continue;
+
+                auto node = bind.find("node");
+                auto index = bind.find("index");
+
+                if (node == bind.end() ||
+                    index == bind.end() ||
+                    !node->is_number_integer() ||
+                    !index->is_number_integer())
+                    continue;
+
+                const auto nodeValue =
+                    node->get<std::int64_t>();
+
+                const auto targetValue =
+                    index->get<std::int64_t>();
+
+                if (nodeValue < 0 ||
+                    static_cast<std::uint64_t>(nodeValue) >=
+                    data->nodes_count ||
+                    targetValue < 0 ||
+                    targetValue > 2147483647)
+                    continue;
+
+                float weight = 1.0f;
+
+                auto weightField = bind.find("weight");
+
+                if (weightField != bind.end() &&
+                    weightField->is_number())
+                {
+                    weight = weightField->get<float>();
+                }
+
+                expressionBindings[name].push_back({
+                    static_cast<int>(nodeValue),
+                    static_cast<int>(targetValue),
+                    glm::clamp(weight, 0.0f, 1.0f)
+                    });
+            }
+        }
+
+        break;
+    }
+
+    // 실제로 읽힌 매핑 개수 확인
+    for (const char* name : { "blink", "aa", "happy" })
+    {
+        std::cout
+            << "Expression " << name
+            << " bindings: "
+            << expressionBindings[name].size()
+            << '\n';
+    }
+
+
+
     for (cgltf_size n = 0; n < data->nodes_count; ++n)
     {
         const cgltf_node& node = data->nodes[n];
@@ -579,25 +703,38 @@ GltfModel::GltfModel(const std::string& path)
                 : -1;
 
 
-            // ===== 얼굴 Morph Target 로딩 =====
-            // 현재 test.vrm 전용 매핑
-            constexpr int FaceNode = 112;
-            constexpr int BlinkTarget = 13;
-            constexpr int MouthTarget = 39;
 
-            if (static_cast<int>(n) == FaceNode &&
-                primitive.targets_count > MouthTarget)
-            {
-                // Morph 적용 전 원본 정점 저장
-                part.baseVertices = vertices;
+            // ===== VRM Expression 기반 Morph Target 로딩 =====
 
-                // 지정한 Morph Target의 위치 변화량 읽기
-                auto readMorphPositions =
-                    [&](int targetIndex,
-                        std::vector<glm::vec3>& output)
+            auto accumulateMorphDeltas =
+                [&](const char* expressionName,
+                    std::vector<glm::vec3>& output)
+                {
+                    auto found =
+                        expressionBindings.find(expressionName);
+
+                    if (found == expressionBindings.end())
+                        return;
+
+                    for (const MorphBinding& binding :
+                        found->second)
                     {
+                        // 해당 표정이 적용되는 노드만 처리
+                        if (binding.node != static_cast<int>(n))
+                            continue;
+
+                        if (binding.index < 0 ||
+                            static_cast<cgltf_size>(binding.index) >=
+                            primitive.targets_count)
+                        {
+                            std::cerr
+                                << "Invalid morph target: "
+                                << expressionName << '\n';
+                            continue;
+                        }
+
                         const cgltf_morph_target& target =
-                            primitive.targets[targetIndex];
+                            primitive.targets[binding.index];
 
                         const cgltf_accessor* accessor = nullptr;
 
@@ -615,18 +752,21 @@ GltfModel::GltfModel(const std::string& path)
                             }
                         }
 
-                        // POSITION 변화량이 없는 Morph는 건너뜀
                         if (!accessor)
-                            return;
+                            continue;
 
                         if (accessor->count != vertices.size())
-                        {
                             throw std::runtime_error(
                                 "Morph vertex count mismatch"
                             );
-                        }
 
-                        output.resize(vertices.size());
+                        if (output.empty())
+                        {
+                            output.assign(
+                                vertices.size(),
+                                glm::vec3(0.0f)
+                            );
+                        }
 
                         for (cgltf_size i = 0;
                             i < accessor->count; ++i)
@@ -637,27 +777,38 @@ GltfModel::GltfModel(const std::string& path)
                                 accessor, i, delta, 3))
                             {
                                 throw std::runtime_error(
-                                    "Failed to read morph positions"
+                                    "Failed to read morph delta"
                                 );
                             }
 
-                            output[i] = glm::vec3(
+                            // 바인딩 가중치를 포함하여 누적
+                            output[i] += glm::vec3(
                                 delta[0],
                                 delta[1],
                                 delta[2]
-                            );
+                            ) * binding.weight;
                         }
-                    };
+                    }
+                };
 
-                readMorphPositions(
-                    BlinkTarget,
-                    part.blinkDeltas
-                );
+            accumulateMorphDeltas(
+                "blink", part.blinkDeltas
+            );
 
-                readMorphPositions(
-                    MouthTarget,
-                    part.mouthDeltas
-                );
+            accumulateMorphDeltas(
+                "aa", part.mouthDeltas
+            );
+
+            accumulateMorphDeltas(
+                "happy", part.happyDeltas
+            );
+
+            // Morph가 존재하는 Part만 원본 정점 보관
+            if (!part.blinkDeltas.empty() ||
+                !part.mouthDeltas.empty() ||
+                !part.happyDeltas.empty())
+            {
+                part.baseVertices = vertices;
             }
 
 
@@ -811,9 +962,11 @@ GltfModel::~GltfModel()
 }
 
 
+
 void GltfModel::updateFace(
     float blinkWeight,
-    float mouthWeight)
+    float mouthWeight,
+    float happyWeight)
 {
     blinkWeight = glm::clamp(
         blinkWeight, 0.0f, 1.0f
@@ -823,13 +976,28 @@ void GltfModel::updateFace(
         mouthWeight, 0.0f, 1.0f
     );
 
+    happyWeight = glm::clamp(
+        happyWeight, 0.0f, 1.0f
+    );
+
+    // 이전 프레임과 표정이 같다면 VBO 갱신 생략
+    if (blinkWeight == lastBlinkWeight &&
+        mouthWeight == lastMouthWeight &&
+        happyWeight == lastHappyWeight)
+    {
+        return;
+    }
+
+    lastBlinkWeight = blinkWeight;
+    lastMouthWeight = mouthWeight;
+    lastHappyWeight = happyWeight;
+
     for (Part& part : parts)
     {
-        // 얼굴 Morph 데이터가 없는 메시 제외
         if (part.baseVertices.empty())
             continue;
 
-        // 항상 원본에서 계산하여 변형 누적 방지
+        // 항상 원본 정점에서 다시 변형
         std::vector<Vertex> deformed =
             part.baseVertices;
 
@@ -850,10 +1018,16 @@ void GltfModel::updateFace(
                     part.mouthDeltas[i] * mouthWeight;
             }
 
+            if (i < part.happyDeltas.size())
+            {
+                delta +=
+                    part.happyDeltas[i] * happyWeight;
+            }
+
             deformed[i].position += delta;
         }
 
-        // 변경된 정점을 GPU에 전달
         part.mesh->updateVertices(deformed);
     }
 }
+

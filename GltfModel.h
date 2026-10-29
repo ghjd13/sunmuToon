@@ -22,7 +22,11 @@ public:
     void draw(const Shader& shader, const glm::mat4& modelMatrix) const;
     Skeleton& getSkeleton();
 
-    void updateFace(float blinkWeight, float mouthWeight);
+    void updateFace(
+        float blinkWeight,
+        float mouthWeight,
+        float happyWeight
+    );
 
 private:
     struct Part
@@ -40,9 +44,14 @@ private:
         // 눈 감기와 입 벌리기의 POSITION 변화량
         std::vector<glm::vec3> blinkDeltas;
         std::vector<glm::vec3> mouthDeltas;
+        std::vector<glm::vec3> happyDeltas;
     };
 
     std::vector<Part> parts;
     std::unique_ptr<Skeleton> skeleton;
     GLuint skinUBO = 0;
+
+    float lastBlinkWeight = -1.0f;
+    float lastMouthWeight = -1.0f;
+    float lastHappyWeight = -1.0f;
 };

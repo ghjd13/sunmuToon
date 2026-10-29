@@ -9,6 +9,7 @@
 #include "Camera.h"
 #include "GltfModel.h"
 #include "Animator.h"
+#include "FaceAnimator.h"
 
 #include <iostream>
 #include <exception>
@@ -68,6 +69,7 @@ int main(int argc, char** argv)
 
         GltfModel model(modelPath);
         Animator animator;
+        FaceAnimator faceAnimator;
 
         float lastTime = static_cast<float>(glfwGetTime());
 
@@ -109,21 +111,31 @@ int main(int argc, char** argv)
                 waving
             );
 
+            // ===== 얼굴 애니메이션 =====
 
-            // ===== 얼굴 표정 테스트 =====
+            const bool blinkPressed =
+                glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS;
 
-            // B키: 눈 감기
-            float blinkWeight =
-                glfwGetKey(window, GLFW_KEY_B) == GLFW_PRESS
-                ? 1.0f : 0.0f;
+            const bool mouthPressed =
+                glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS;
 
-            // A키: 입 벌리기
-            float mouthWeight =
-                glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS
-                ? 1.0f : 0.0f;
+            const bool happyPressed =
+                glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS;
 
-            // 얼굴 정점 갱신
-            model.updateFace(blinkWeight, mouthWeight);
+            // 입력 + 자동 깜빡임 + 표정 보간
+            const FaceWeights face = faceAnimator.update(
+                deltaTime,
+                blinkPressed,
+                mouthPressed,
+                happyPressed
+            );
+
+            // 기존 Morph Target 렌더링에 전달
+            model.updateFace(
+                face.blink,
+                face.mouth,
+                face.happy
+            );
 
             if (glfwGetKey(window, GLFW_KEY_ESCAPE)
                 == GLFW_PRESS)

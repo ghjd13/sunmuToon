@@ -126,6 +126,7 @@
   <ItemGroup>
     <ClCompile Include="Animator.cpp" />
     <ClCompile Include="cgltf_impl.cpp" />
+    <ClCompile Include="FaceAnimator.cpp" />
     <ClCompile Include="GltfModel.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Mesh.cpp" />
@@ -136,6 +137,7 @@
   <ItemGroup>
     <ClInclude Include="Animator.h" />
     <ClInclude Include="Camera.h" />
+    <ClInclude Include="FaceAnimator.h" />
     <ClInclude Include="GltfModel.h" />
     <ClInclude Include="Mesh.h" />
     <ClInclude Include="Shader.h" />
