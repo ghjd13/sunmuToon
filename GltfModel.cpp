@@ -998,16 +998,106 @@ GltfModel::GltfModel(const std::string& path)
                         << part.mtoonShadingToony
                         << '\n';
 
-                    if (mtoon.contains(
-                        "shadeMultiplyTexture"))
+
+                    // ===== MToon 그림자 텍스처 =====
+
+                    auto shadeInfo = mtoon.find("shadeMultiplyTexture");
+
+                    if (shadeInfo != mtoon.end() &&
+                        shadeInfo->is_object())
                     {
-                        std::cout
-                            << "  Shade texture present "
-                            << "(not rendered yet)\n";
+                        auto indexField = shadeInfo->find("index");
+
+                        if (indexField != shadeInfo->end() &&
+                            indexField->is_number_integer())
+                        {
+                            const std::int64_t textureIndex =
+                                indexField->get<std::int64_t>();
+
+                            // 현재 Vertex는 UV 채널 하나만 보관하므로
+                            // 기본 텍스처와 UV 채널이 같을 때만 지원
+                            int shadeUvSet = 0;
+
+                            auto uvField = shadeInfo->find("texCoord");
+
+                            if (uvField != shadeInfo->end() &&
+                                uvField->is_number_integer())
+                            {
+                                shadeUvSet = uvField->get<int>();
+                            }
+
+                            if (shadeUvSet != uvSet)
+                            {
+                                std::cerr
+                                    << "Shade texture UV set unsupported: "
+                                    << shadeUvSet << '\n';
+                            }
+                            else if (textureIndex >= 0 &&
+                                static_cast<std::uint64_t>(
+                                    textureIndex) < data->textures_count)
+                            {
+                                const cgltf_texture& shadeTexture =
+                                    data->textures[textureIndex];
+
+                                const cgltf_image* image =
+                                    shadeTexture.image;
+
+                                if (image)
+                                {
+                                    auto found = textureCache.find(image);
+
+                                    if (found != textureCache.end())
+                                    {
+                                        // 이미 로드된 텍스처 재사용
+                                        part.shadeTexture = found->second;
+                                    }
+                                    else
+                                    {
+                                        part.shadeTexture =
+                                            loadImage(image, path);
+
+                                        textureCache[image] =
+                                            part.shadeTexture;
+                                    }
+                                }
+                            }
+                        }
                     }
+
+                    std::cout
+                        << "  Shade texture: "
+                        << (part.shadeTexture ? "Loaded" : "None")
+                        << '\n';
+
 
                     break;
                 }
+            }
+            // ===== Normal Map / Tangent 진단 =====
+            if (primitive.material)
+            {
+                const cgltf_material* material =
+                    primitive.material;
+
+                const bool hasNormalMap =
+                    material->normal_texture.texture != nullptr;
+
+                const cgltf_accessor* tangent =
+                    cgltf_find_accessor(
+                        &primitive,
+                        cgltf_attribute_type_tangent,
+                        0
+                    );
+
+                std::cout
+                    << "[Normal Map] "
+                    << (material->name
+                        ? material->name : "Unnamed")
+                    << " | Texture: "
+                    << (hasNormalMap ? "Yes" : "No")
+                    << " | Tangent: "
+                    << (tangent ? "Yes" : "No")
+                    << '\n';
             }
 
             parts.push_back(std::move(part));
@@ -1211,6 +1301,28 @@ void GltfModel::draw(
                 glBindTexture(GL_TEXTURE_2D, 0);
             }
 
+            // ===== MToon 그림자 텍스처 =====
+
+// 기본 텍스처는 GL_TEXTURE0 사용 중
+// 그림자 텍스처는 GL_TEXTURE1 사용
+            shader.setInt("shadeTexture", 1);
+
+            glActiveTexture(GL_TEXTURE1);
+
+            if (part.shadeTexture)
+            {
+                shader.setInt("hasShadeTexture", 1);
+                part.shadeTexture->bind();
+            }
+            else
+            {
+                shader.setInt("hasShadeTexture", 0);
+                glBindTexture(GL_TEXTURE_2D, 0);
+            }
+
+            // 활성 텍스처 유닛을 기존 0번으로 복구
+            glActiveTexture(GL_TEXTURE0);
+
             part.mesh->draw();
         };
 
@@ -1256,6 +1368,12 @@ void GltfModel::draw(
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
 
+    // 그림자 텍스처 해제
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    // 기본 텍스처 유닛 복구
+    glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 

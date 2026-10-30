@@ -11,6 +11,10 @@ uniform sampler2D baseTexture;
 uniform int hasTexture;
 uniform vec4 baseColorFactor;
 
+// MToon 그림자 텍스처
+uniform sampler2D shadeTexture;
+uniform int hasShadeTexture;
+
 // 새 MToon 파라미터
 uniform int hasMToon;
 uniform vec4 mtoonShadeColor;
@@ -129,11 +133,23 @@ void main()
             );
         }
 
-        // 현재는 shadeMultiplyTexture 미지원
-        // 따라서 그림자색 계수만 사용
-        // 임시 보정: 기본 텍스처를 그림자 텍스처 대신 사용
+        
+        // 기본값은 흰색: 텍스처가 없으면 계수만 적용
+        vec3 shadeTexColor = vec3(1.0);
+
+        if (hasShadeTexture != 0)
+        {
+            // 현재 Texture.cpp는 GL_RGBA8을 사용하므로
+            // 셰이더에서 sRGB -> Linear 변환
+            shadeTexColor = srgbToLinear(
+                texture(shadeTexture, TexCoord).rgb
+            );
+        }
+
+        // 공식 MToon 그림자색 계산
         vec3 shadeColor =
-            baseColor.rgb * mtoonShadeColor.rgb;
+            shadeTexColor * mtoonShadeColor.rgb;
+
 
         finalColor = mix(
             shadeColor,

@@ -33,6 +33,8 @@ private:
     {
         std::unique_ptr<Mesh> mesh;
         std::shared_ptr<Texture2D> texture;
+        // MToon 그림자용 텍스처
+        std::shared_ptr<Texture2D> shadeTexture;
         glm::mat4 transform{1.0f};
         glm::vec4 baseColor{1.0f};
 
