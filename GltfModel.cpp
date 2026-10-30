@@ -702,6 +702,30 @@ GltfModel::GltfModel(const std::string& path)
                 ? static_cast<int>(node.skin - data->skins)
                 : -1;
 
+            // ===== glTF 머터리얼 알파 모드 =====
+            if (primitive.material)
+            {
+                const cgltf_material* material =
+                    primitive.material;
+
+                switch (material->alpha_mode)
+                {
+                case cgltf_alpha_mode_mask:
+                    part.alphaMode = Part::AlphaMode::Mask;
+                    break;
+
+                case cgltf_alpha_mode_blend:
+                    part.alphaMode = Part::AlphaMode::Blend;
+                    break;
+
+                default:
+                    part.alphaMode = Part::AlphaMode::Opaque;
+                    break;
+                }
+
+                part.alphaCutoff = material->alpha_cutoff;
+            }
+
 
 
             // ===== VRM Expression 기반 Morph Target 로딩 =====
@@ -892,6 +916,28 @@ GltfModel::GltfModel(const std::string& path)
 
                     part.hasMToon = true;
 
+
+                    // BLEND일 때 깊이 버퍼에 기록할지 여부
+                    auto zwrite = mtoon.find("transparentWithZWrite");
+
+                    if (zwrite != mtoon.end() &&
+                        zwrite->is_boolean())
+                    {
+                        part.transparentWithZWrite =
+                            zwrite->get<bool>();
+                    }
+
+                    // MToon 투명 머터리얼의 렌더링 순서
+                    auto queue = mtoon.find("renderQueueOffsetNumber");
+
+                    if (queue != mtoon.end() &&
+                        queue->is_number_integer())
+                    {
+                        part.renderQueueOffset =
+                            queue->get<int>();
+                    }
+
+
                     // 1. 그림자색
                     auto shade =
                         mtoon.find("shadeColorFactor");
@@ -1005,92 +1051,214 @@ GltfModel::GltfModel(const std::string& path)
 
 }
 
+
 void GltfModel::draw(
     const Shader& shader,
     const glm::mat4& modelMatrix
 ) const
 {
+    // GPU 스키닝 UBO 연결
     GLuint blockIndex = glGetUniformBlockIndex(
         shader.ID, "SkinMatrices"
     );
 
     if (blockIndex == GL_INVALID_INDEX)
-        throw std::runtime_error("SkinMatrices uniform block not found");
+        throw std::runtime_error(
+            "SkinMatrices uniform block not found"
+        );
 
     glUniformBlockBinding(shader.ID, blockIndex, 0);
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, skinUBO);
 
+    // ===== 1. 머터리얼별 렌더링 목록 구성 =====
+
+    std::vector<const Part*> opaqueParts;
+    std::vector<const Part*> maskParts;
+    std::vector<const Part*> blendZWriteParts;
+    std::vector<const Part*> blendParts;
+
     for (const Part& part : parts)
     {
-        const glm::mat4& nodeWorld =
-            skeleton->worldTransform(part.nodeIndex);
-
-        shader.setMat4("model", modelMatrix * nodeWorld);
-
-        if (part.skinIndex >= 0)
+        switch (part.alphaMode)
         {
-            Skeleton::Palette palette;
-            skeleton->buildPalette(
-                part.skinIndex, part.nodeIndex, palette
-            );
+        case Part::AlphaMode::Opaque:
+            opaqueParts.push_back(&part);
+            break;
 
-            glBindBuffer(GL_UNIFORM_BUFFER, skinUBO);
-            glBufferSubData(
-                GL_UNIFORM_BUFFER, 0,
-                sizeof(palette), palette.data()
-            );
-            glBindBuffer(GL_UNIFORM_BUFFER, 0);
-            shader.setInt("useSkinning", 1);
+        case Part::AlphaMode::Mask:
+            maskParts.push_back(&part);
+            break;
+
+        case Part::AlphaMode::Blend:
+            if (part.transparentWithZWrite)
+                blendZWriteParts.push_back(&part);
+            else
+                blendParts.push_back(&part);
+            break;
         }
-        else
-        {
-            shader.setInt("useSkinning", 0);
-        }
-
-        shader.setVec4("baseColorFactor", part.baseColor);
-
-
-        // ===== 머터리얼별 MToon 설정 전달 =====
-        shader.setInt(
-            "hasMToon",
-            part.hasMToon ? 1 : 0
-        );
-
-        shader.setVec4(
-            "mtoonShadeColor",
-            part.mtoonShadeColor
-        );
-
-        shader.setFloat(
-            "mtoonShadingShift",
-            part.mtoonShadingShift
-        );
-
-        shader.setFloat(
-            "mtoonShadingToony",
-            part.mtoonShadingToony
-        );
-
-
-        shader.setInt("baseTexture", 0);
-        glActiveTexture(GL_TEXTURE0);
-
-        if (part.texture)
-        {
-            shader.setInt("hasTexture", 1);
-            part.texture->bind();
-        }
-        else
-        {
-            shader.setInt("hasTexture", 0);
-            glBindTexture(GL_TEXTURE_2D, 0);
-        }
-
-        part.mesh->draw();
     }
+
+    // MToon Render Queue Offset 오름차순 정렬
+    auto sortByQueue = [](const Part* a, const Part* b)
+        {
+            return a->renderQueueOffset <
+                b->renderQueueOffset;
+        };
+
+    std::stable_sort(
+        blendZWriteParts.begin(),
+        blendZWriteParts.end(),
+        sortByQueue
+    );
+
+    std::stable_sort(
+        blendParts.begin(),
+        blendParts.end(),
+        sortByQueue
+    );
+
+    // ===== 2. 메시 한 개 렌더링 =====
+
+    auto renderPart = [&](const Part& part)
+        {
+            const glm::mat4& nodeWorld =
+                skeleton->worldTransform(part.nodeIndex);
+
+            shader.setMat4(
+                "model",
+                modelMatrix * nodeWorld
+            );
+
+            // 기존 GPU 스키닝
+            if (part.skinIndex >= 0)
+            {
+                Skeleton::Palette palette;
+
+                skeleton->buildPalette(
+                    part.skinIndex,
+                    part.nodeIndex,
+                    palette
+                );
+
+                glBindBuffer(GL_UNIFORM_BUFFER, skinUBO);
+
+                glBufferSubData(
+                    GL_UNIFORM_BUFFER,
+                    0,
+                    sizeof(palette),
+                    palette.data()
+                );
+
+                glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+                shader.setInt("useSkinning", 1);
+            }
+            else
+            {
+                shader.setInt("useSkinning", 0);
+            }
+
+            // 기존 기본 머터리얼
+            shader.setVec4(
+                "baseColorFactor",
+                part.baseColor
+            );
+
+            // 기존 MToon 파라미터
+            shader.setInt(
+                "hasMToon",
+                part.hasMToon ? 1 : 0
+            );
+
+            shader.setVec4(
+                "mtoonShadeColor",
+                part.mtoonShadeColor
+            );
+
+            shader.setFloat(
+                "mtoonShadingShift",
+                part.mtoonShadingShift
+            );
+
+            shader.setFloat(
+                "mtoonShadingToony",
+                part.mtoonShadingToony
+            );
+
+            // 새 알파 모드
+            shader.setInt(
+                "alphaMode",
+                static_cast<int>(part.alphaMode)
+            );
+
+            shader.setFloat(
+                "alphaCutoff",
+                part.alphaCutoff
+            );
+
+            // 기존 텍스처
+            shader.setInt("baseTexture", 0);
+            glActiveTexture(GL_TEXTURE0);
+
+            if (part.texture)
+            {
+                shader.setInt("hasTexture", 1);
+                part.texture->bind();
+            }
+            else
+            {
+                shader.setInt("hasTexture", 0);
+                glBindTexture(GL_TEXTURE_2D, 0);
+            }
+
+            part.mesh->draw();
+        };
+
+    // ===== 3. OPAQUE / MASK =====
+    // 불투명 파트를 먼저 그려 깊이 버퍼 채우기
+
+    glDisable(GL_BLEND);
+    glDepthMask(GL_TRUE);
+
+    for (const Part* part : opaqueParts)
+        renderPart(*part);
+
+    for (const Part* part : maskParts)
+        renderPart(*part);
+
+    // ===== 4. BLEND =====
+    // 반투명 픽셀을 배경과 혼합
+
+    glEnable(GL_BLEND);
+
+    glBlendFuncSeparate(
+        GL_SRC_ALPHA,
+        GL_ONE_MINUS_SRC_ALPHA,
+        GL_ONE,
+        GL_ONE_MINUS_SRC_ALPHA
+    );
+
+    // MToon: 투명하지만 깊이 기록 허용
+    glDepthMask(GL_TRUE);
+
+    for (const Part* part : blendZWriteParts)
+        renderPart(*part);
+
+    // 일반 반투명: 깊이 테스트는 유지,
+    // 깊이 버퍼 기록만 중지
+    glDepthMask(GL_FALSE);
+
+    for (const Part* part : blendParts)
+        renderPart(*part);
+
+    // ===== 5. OpenGL 상태 복원 =====
+
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
 
     glBindTexture(GL_TEXTURE_2D, 0);
 }
+
 
 Skeleton& GltfModel::getSkeleton()
 {

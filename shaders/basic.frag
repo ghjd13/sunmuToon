@@ -17,6 +17,9 @@ uniform vec4 mtoonShadeColor;
 uniform float mtoonShadingShift;
 uniform float mtoonShadingToony;
 
+uniform int alphaMode;       // 0: OPAQUE, 1: MASK, 2: BLEND
+uniform float alphaCutoff;   // MASK 기준값
+
 
 vec3 srgbToLinear(vec3 color)
 {
@@ -69,8 +72,17 @@ void main()
         texColor.a * baseColorFactor.a
     );
 
-    if (baseColor.a < 0.05)
+    // MASK: 지정된 기준보다 투명하면 픽셀 제거
+    if (alphaMode == 1 && baseColor.a < alphaCutoff)
+    {
         discard;
+    }
+
+    // BLEND: 완전히 투명한 픽셀만 제거
+    if (alphaMode == 2 && baseColor.a <= 0.001)
+    {
+        discard;
+    }
 
     // 2. 기본 방향광
     vec3 N = normalize(Normal);
@@ -153,8 +165,12 @@ void main()
         );
     }
 
+    // BLEND만 원래 알파값 사용
+    float outputAlpha =
+        (alphaMode == 2) ? baseColor.a : 1.0;
+
     FragColor = vec4(
         linearToSrgb(finalColor),
-        baseColor.a
+        outputAlpha
     );
 }

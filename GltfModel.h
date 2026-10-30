@@ -56,6 +56,21 @@ private:
         std::vector<glm::vec3> blinkDeltas;
         std::vector<glm::vec3> mouthDeltas;
         std::vector<glm::vec3> happyDeltas;
+
+        // glTF 알파 렌더링 모드
+        enum class AlphaMode
+        {
+            Opaque = 0,
+            Mask = 1,
+            Blend = 2
+        };
+
+        AlphaMode alphaMode = AlphaMode::Opaque;
+        float alphaCutoff = 0.5f;
+
+        // MToon 투명 렌더링 옵션
+        bool transparentWithZWrite = false;
+        int renderQueueOffset = 0;
     };
 
     std::vector<Part> parts;
