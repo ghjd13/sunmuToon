@@ -43,7 +43,8 @@ FaceWeights FaceAnimator::update(
     float deltaTime,
     bool blinkPressed,
     bool mouthPressed,
-    bool happyPressed)
+    bool happyPressed,
+    float microphoneMouthWeight)
 {
     // 프레임 지연으로 인한 급격한 변화 방지
     const float dt = std::clamp(
@@ -59,12 +60,29 @@ FaceWeights FaceAnimator::update(
         dt
     );
 
+
+    // 마이크 음량을 유효 범위로 제한
+    microphoneMouthWeight = std::clamp(
+        microphoneMouthWeight,
+        0.0f,
+        1.0f
+    );
+
+    // A키를 누르면 수동으로 완전히 입을 벌림
+    // 그렇지 않으면 마이크 음량을 사용
+    const float targetMouth = std::max(
+        mouthPressed ? 1.0f : 0.0f,
+        microphoneMouthWeight
+    );
+
+    // 기존 보간 기능 유지
     smoothApproach(
         mouthWeight,
-        mouthPressed ? 1.0f : 0.0f,
+        targetMouth,
         10.0f,
         dt
     );
+
 
     smoothApproach(
         happyWeight,

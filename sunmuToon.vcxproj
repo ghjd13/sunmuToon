@@ -130,6 +130,7 @@
     <ClCompile Include="GltfModel.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Mesh.cpp" />
+    <ClCompile Include="MicrophoneInput.cpp" />
     <ClCompile Include="Shader.cpp" />
     <ClCompile Include="Skeleton.cpp" />
     <ClCompile Include="Texture.cpp" />
@@ -140,6 +141,7 @@
     <ClInclude Include="FaceAnimator.h" />
     <ClInclude Include="GltfModel.h" />
     <ClInclude Include="Mesh.h" />
+    <ClInclude Include="MicrophoneInput.h" />
     <ClInclude Include="Shader.h" />
     <ClInclude Include="Skeleton.h" />
     <ClInclude Include="Texture.h" />

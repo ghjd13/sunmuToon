@@ -10,6 +10,7 @@
 #include "GltfModel.h"
 #include "Animator.h"
 #include "FaceAnimator.h"
+#include "MicrophoneInput.h"
 
 #include <iostream>
 #include <exception>
@@ -71,6 +72,28 @@ int main(int argc, char** argv)
         Animator animator;
         FaceAnimator faceAnimator;
 
+
+        // ===== 마이크 초기화 =====
+        MicrophoneInput microphone;
+
+        // 기본 마이크 사용 시작
+        bool microphoneEnabled = microphone.start();
+
+        if (microphoneEnabled)
+        {
+            std::cout << "Microphone capture started\n";
+        }
+        else
+        {
+            std::cerr
+                << "Microphone initialization failed. "
+                << "Manual A-key lip sync is still available.\n";
+        }
+
+        // M키의 중복 입력을 방지
+        bool previousMPressed = false;
+
+
         float lastTime = static_cast<float>(glfwGetTime());
 
         while (!glfwWindowShouldClose(window))
@@ -82,6 +105,42 @@ int main(int argc, char** argv)
             float now = static_cast<float>(glfwGetTime());
             float deltaTime = now - lastTime;
             lastTime = now;
+
+
+            // ===== 마이크 ON / OFF =====
+
+            const bool mPressed =
+                glfwGetKey(window, GLFW_KEY_M) == GLFW_PRESS;
+
+            // M키를 새로 누른 순간에만 실행
+            if (mPressed && !previousMPressed)
+            {
+                if (microphoneEnabled)
+                {
+                    // 마이크 캡처까지 완전히 중지
+                    microphone.stop();
+                    microphoneEnabled = false;
+
+                    std::cout << "Microphone OFF\n";
+                }
+                else
+                {
+                    microphoneEnabled = microphone.start();
+
+                    if (microphoneEnabled)
+                    {
+                        std::cout << "Microphone ON\n";
+                    }
+                    else
+                    {
+                        std::cerr
+                            << "Failed to start microphone\n";
+                    }
+                }
+            }
+
+            previousMPressed = mPressed;
+
 
             // X=Pitch(상하), Y=Yaw(좌우), Z=Roll(기울기)
             glm::vec3 targetHeadDegrees(0.0f);
@@ -122,13 +181,29 @@ int main(int argc, char** argv)
             const bool happyPressed =
                 glfwGetKey(window, GLFW_KEY_H) == GLFW_PRESS;
 
-            // 입력 + 자동 깜빡임 + 표정 보간
+
+            // 마이크가 꺼져 있으면 음량은 0
+            const float micMouthWeight =
+                microphoneEnabled
+                ? microphone.getMouthWeight()
+                : 0.0f;
+
+            // 자동 깜빡임 + 키보드 + 마이크 입력 처리
             const FaceWeights face = faceAnimator.update(
                 deltaTime,
                 blinkPressed,
                 mouthPressed,
-                happyPressed
+                happyPressed,
+                micMouthWeight
             );
+
+            // 기존 Morph Target 갱신
+            model.updateFace(
+                face.blink,
+                face.mouth,
+                face.happy
+            );
+
 
             // 기존 Morph Target 렌더링에 전달
             model.updateFace(

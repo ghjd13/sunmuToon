@@ -20,7 +20,8 @@ public:
         float deltaTime,
         bool blinkPressed,
         bool mouthPressed,
-        bool happyPressed
+        bool happyPressed,
+        float microphoneMouthWeight
     );
 
 private:
