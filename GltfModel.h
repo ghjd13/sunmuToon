@@ -35,6 +35,10 @@ private:
         std::shared_ptr<Texture2D> texture;
         // MToon 그림자용 텍스처
         std::shared_ptr<Texture2D> shadeTexture;
+        // glTF 노멀맵
+        std::shared_ptr<Texture2D> normalTexture;
+        float normalScale = 1.0f;
+
         glm::mat4 transform{1.0f};
         glm::vec4 baseColor{1.0f};
 

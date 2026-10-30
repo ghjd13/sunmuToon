@@ -2,6 +2,7 @@
 #version 330 core
 
 in vec3 Normal;
+in vec3 WorldPos;
 in vec2 TexCoord;
 
 out vec4 FragColor;
@@ -10,6 +11,9 @@ out vec4 FragColor;
 uniform sampler2D baseTexture;
 uniform int hasTexture;
 uniform vec4 baseColorFactor;
+uniform sampler2D normalMapTexture;
+uniform int hasNormalMap;
+uniform float normalScale;
 
 // MToon 그림자 텍스처
 uniform sampler2D shadeTexture;
@@ -61,6 +65,68 @@ vec3 linearToSrgb(vec3 color)
 }
 
 
+vec3 getShadedNormal()
+{
+    vec3 N = normalize(Normal);
+
+    if (hasNormalMap == 0)
+        return N;
+
+    // 노멀맵은 선형 데이터:
+    // sRGB 변환을 하지 않습니다.
+    vec3 mapNormal =
+        texture(normalMapTexture, TexCoord).rgb
+        * 2.0 - 1.0;
+
+    mapNormal.xy *= normalScale;
+
+    // 화면에서 변화하는 월드 좌표와 UV
+    vec3 dpdx = dFdx(WorldPos);
+    vec3 dpdy = dFdy(WorldPos);
+
+    vec2 duvdx = dFdx(TexCoord);
+    vec2 duvdy = dFdy(TexCoord);
+
+    float det =
+        duvdx.x * duvdy.y -
+        duvdx.y * duvdy.x;
+
+    // UV가 퇴화된 영역은 원래 법선 사용
+    if (abs(det) < 0.00000001)
+        return N;
+
+    // 접선 및 종법선 계산
+    vec3 T =
+        (dpdx * duvdy.y -
+         dpdy * duvdx.y) / det;
+
+    vec3 referenceB =
+        (dpdy * duvdx.x -
+         dpdx * duvdy.x) / det;
+
+    // 법선과 직교하도록 보정
+    T -= N * dot(N, T);
+
+    if (dot(T, T) < 0.000000000001)
+        return N;
+
+    T = normalize(T);
+
+    vec3 B = cross(N, T);
+
+    // 반전된 UV에서도 방향 유지
+    if (dot(B, referenceB) < 0.0)
+        B = -B;
+
+    // 접선 공간의 노멀을 월드 공간으로 변환
+    mat3 TBN = mat3(T, B, N);
+
+    return normalize(
+        TBN * normalize(mapNormal)
+    );
+}
+
+
 void main()
 {
     // 1. 기본 텍스처
@@ -89,7 +155,7 @@ void main()
     }
 
     // 2. 기본 방향광
-    vec3 N = normalize(Normal);
+    vec3 N = getShadedNormal();
     vec3 L = normalize(vec3(-0.3, 0.8, 0.6));
 
     float NdotL = dot(N, L);

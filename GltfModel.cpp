@@ -881,6 +881,53 @@ GltfModel::GltfModel(const std::string& path)
                 }
             }
 
+            // ===== glTF Normal Map =====
+            if (primitive.material)
+            {
+                const cgltf_material* material =
+                    primitive.material;
+
+            const cgltf_texture* normalSource =
+                material->normal_texture.texture;
+
+            if (normalSource && normalSource->image)
+            {
+                // 현재 Vertex에는 UV 채널 하나만 존재
+                if (uv &&
+                    material->normal_texture.texcoord == uvSet)
+                {
+                    const cgltf_image* image =
+                        normalSource->image;
+
+                    auto found = textureCache.find(image);
+
+                    if (found != textureCache.end())
+                    {
+                        part.normalTexture = found->second;
+                    }
+                    else
+                    {
+                        part.normalTexture = loadImage(
+                            image, path
+                        );
+
+                        textureCache[image] =
+                            part.normalTexture;
+                    }
+
+                    part.normalScale =
+                        material->normal_texture.scale;
+                }
+                else
+                {
+                    std::cerr
+                        << "[Normal Map] Unsupported UV set: "
+                        << (material->name
+                            ? material->name : "Unnamed")
+                        << '\n';}
+                }
+            }
+
             // ===== VRM 1.0 MToon 파라미터 =====
             if (primitive.material)
             {
@@ -1323,6 +1370,35 @@ void GltfModel::draw(
             // 활성 텍스처 유닛을 기존 0번으로 복구
             glActiveTexture(GL_TEXTURE0);
 
+
+            // ===== Normal Map 바인딩 =====
+
+            // 0: 기본 텍스처
+            // 1: MToon 그림자 텍스처
+            // 2: 노멀맵
+            shader.setInt("normalMapTexture", 2);
+
+            shader.setFloat(
+                "normalScale",
+                part.normalScale
+            );
+
+            glActiveTexture(GL_TEXTURE2);
+
+            if (part.normalTexture)
+            {
+                shader.setInt("hasNormalMap", 1);
+                part.normalTexture->bind();
+            }
+            else
+            {
+                shader.setInt("hasNormalMap", 0);
+                glBindTexture(GL_TEXTURE_2D, 0);
+            }
+
+            // 노멀맵을 유지한 상태에서 렌더링
+            glActiveTexture(GL_TEXTURE0);
+
             part.mesh->draw();
         };
 
@@ -1367,6 +1443,10 @@ void GltfModel::draw(
 
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
+
+    // 노멀맵 해제
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, 0);
 
     // 그림자 텍스처 해제
     glActiveTexture(GL_TEXTURE1);

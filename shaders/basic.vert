@@ -10,6 +10,7 @@ layout (location = 4) in vec4 aWeights;
 
 out vec3 Normal;
 out vec2 TexCoord;
+out vec3 WorldPos;
 
 uniform mat4 model;
 uniform mat4 view;
@@ -55,6 +56,8 @@ void main()
 
     vec4 worldPosition =
         model * skinnedPosition;
+
+    WorldPos = worldPosition.xyz;
 
     gl_Position =
         projection * view * worldPosition;
