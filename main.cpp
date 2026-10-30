@@ -59,6 +59,10 @@ int main(int argc, char** argv)
 
         Camera camera;
 
+        // 모델을 더 가까이, 화면 중앙에 배치
+        camera.position = glm::vec3(0.8f, 1.35f, 2.0f);
+        camera.target = glm::vec3(0.0f, 1.0f, 0.0f);
+
         // 외부 GLB 모델 로딩
         std::string modelPath =
             (argc > 1)
