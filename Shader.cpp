@@ -160,3 +160,17 @@ void Shader::setVec4(
         glm::value_ptr(value)
     );
 }
+
+
+void Shader::setFloat(
+    const std::string& name,
+    float value
+) const
+{
+    GLint location = glGetUniformLocation(
+        ID,
+        name.c_str()
+    );
+
+    glUniform1f(location, value);
+}

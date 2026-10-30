@@ -208,14 +208,6 @@ int main(int argc, char** argv)
                 face.happy
             );
 
-
-            // 기존 Morph Target 렌더링에 전달
-            model.updateFace(
-                face.blink,
-                face.mouth,
-                face.happy
-            );
-
             if (glfwGetKey(window, GLFW_KEY_ESCAPE)
                 == GLFW_PRESS)
             {

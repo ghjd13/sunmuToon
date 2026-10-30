@@ -35,6 +35,17 @@ private:
         std::shared_ptr<Texture2D> texture;
         glm::mat4 transform{1.0f};
         glm::vec4 baseColor{1.0f};
+
+        // VRM 1.0 MToon 파라미터
+        bool hasMToon = false;
+
+        glm::vec4 mtoonShadeColor{
+            0.0f, 0.0f, 0.0f, 1.0f
+        };
+
+        float mtoonShadingShift = 0.0f;
+        float mtoonShadingToony = 0.9f;
+
         int nodeIndex = -1;
         int skinIndex = -1;
 

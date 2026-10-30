@@ -857,6 +857,113 @@ GltfModel::GltfModel(const std::string& path)
                 }
             }
 
+            // ===== VRM 1.0 MToon 파라미터 =====
+            if (primitive.material)
+            {
+                const cgltf_material* material =
+                    primitive.material;
+
+                for (cgltf_size e = 0;
+                    e < material->extensions_count; ++e)
+                {
+                    const cgltf_extension& extension =
+                        material->extensions[e];
+
+                    if (!extension.name || !extension.data)
+                        continue;
+
+                    if (std::strcmp(
+                        extension.name,
+                        "VRMC_materials_mtoon") != 0)
+                    {
+                        continue;
+                    }
+
+                    auto mtoon = nlohmann::json::parse(
+                        extension.data, nullptr, false
+                    );
+
+                    if (!mtoon.is_object())
+                    {
+                        std::cerr
+                            << "Invalid MToon JSON\n";
+                        break;
+                    }
+
+                    part.hasMToon = true;
+
+                    // 1. 그림자색
+                    auto shade =
+                        mtoon.find("shadeColorFactor");
+
+                    if (shade != mtoon.end() &&
+                        shade->is_array() &&
+                        shade->size() == 3 &&
+                        (*shade)[0].is_number() &&
+                        (*shade)[1].is_number() &&
+                        (*shade)[2].is_number())
+                    {
+                        part.mtoonShadeColor = glm::vec4(
+                            (*shade)[0].get<float>(),
+                            (*shade)[1].get<float>(),
+                            (*shade)[2].get<float>(),
+                            1.0f
+                        );
+                    }
+
+                    // 2. 명암 경계 이동
+                    auto shift =
+                        mtoon.find("shadingShiftFactor");
+
+                    if (shift != mtoon.end() &&
+                        shift->is_number())
+                    {
+                        part.mtoonShadingShift =
+                            shift->get<float>();
+                    }
+
+                    // 3. 툰 명암 선명도
+                    auto toony =
+                        mtoon.find("shadingToonyFactor");
+
+                    if (toony != mtoon.end() &&
+                        toony->is_number())
+                    {
+                        part.mtoonShadingToony =
+                            glm::clamp(
+                                toony->get<float>(),
+                                0.0f,
+                                1.0f
+                            );
+                    }
+
+                    std::cout
+                        << "[MToon] "
+                        << (material->name
+                            ? material->name
+                            : "Unnamed")
+                        << " | Shade: "
+                        << part.mtoonShadeColor.r << ", "
+                        << part.mtoonShadeColor.g << ", "
+                        << part.mtoonShadeColor.b
+                        << " | Shift: "
+                        << part.mtoonShadingShift
+                        << " | Toony: "
+                        << part.mtoonShadingToony
+                        << '\n';
+
+                    if (mtoon.contains(
+                        "shadeMultiplyTexture"))
+                    {
+                        std::cout
+                            << "  Shade texture present "
+                            << "(not rendered yet)\n";
+                    }
+
+                    break;
+                }
+            }
+
             parts.push_back(std::move(part));
         }
     }
@@ -870,6 +977,17 @@ GltfModel::GltfModel(const std::string& path)
         << parts.size()
         << " mesh parts\n";
 
+    std::size_t mtoonPartCount = 0;
+
+    for (const Part& part : parts)
+    {
+        if (part.hasMToon)
+            ++mtoonPartCount;
+    }
+
+    std::cout << "MToon-enabled parts: "
+        << mtoonPartCount
+        << " / " << parts.size() << '\n';
 
     // GPU 스키닝 행렬용 UBO
     glGenBuffers(1, &skinUBO);
@@ -930,6 +1048,30 @@ void GltfModel::draw(
         }
 
         shader.setVec4("baseColorFactor", part.baseColor);
+
+
+        // ===== 머터리얼별 MToon 설정 전달 =====
+        shader.setInt(
+            "hasMToon",
+            part.hasMToon ? 1 : 0
+        );
+
+        shader.setVec4(
+            "mtoonShadeColor",
+            part.mtoonShadeColor
+        );
+
+        shader.setFloat(
+            "mtoonShadingShift",
+            part.mtoonShadingShift
+        );
+
+        shader.setFloat(
+            "mtoonShadingToony",
+            part.mtoonShadingToony
+        );
+
+
         shader.setInt("baseTexture", 0);
         glActiveTexture(GL_TEXTURE0);
 
