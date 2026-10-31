@@ -28,6 +28,9 @@ uniform float mtoonShadingToony;
 uniform int alphaMode;       // 0: OPAQUE, 1: MASK, 2: BLEND
 uniform float alphaCutoff;   // MASK 기준값
 
+// 월드 공간에서 표면을 향해 비추는 방향광
+uniform vec4 lightDirection;
+
 
 vec3 srgbToLinear(vec3 color)
 {
@@ -156,7 +159,7 @@ void main()
 
     // 2. 기본 방향광
     vec3 N = getShadedNormal();
-    vec3 L = normalize(vec3(-0.3, 0.8, 0.6));
+    vec3 L = normalize(lightDirection.xyz);
 
     float NdotL = dot(N, L);
 

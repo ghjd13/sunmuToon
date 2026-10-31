@@ -14,7 +14,7 @@
 
 #include <iostream>
 #include <exception>
-
+#include <cmath>
 #include <string>
 
 int main(int argc, char** argv)
@@ -100,6 +100,10 @@ int main(int argc, char** argv)
 
         float lastTime = static_cast<float>(glfwGetTime());
 
+        // 방향광 초기 각도
+        float lightYawDegrees = -26.565f;
+        float lightPitchDegrees = 50.0f;
+
         while (!glfwWindowShouldClose(window))
         {
             glfwPollEvents();
@@ -109,6 +113,37 @@ int main(int argc, char** argv)
             float now = static_cast<float>(glfwGetTime());
             float deltaTime = now - lastTime;
             lastTime = now;
+
+
+            // ===== 방향광 키보드 조작 =====
+
+            const float lightSpeed = 75.0f;
+
+            // J / L : 광원 좌우 회전
+            if (glfwGetKey(window, GLFW_KEY_J) == GLFW_PRESS)
+                lightYawDegrees -= lightSpeed * deltaTime;
+
+            if (glfwGetKey(window, GLFW_KEY_L) == GLFW_PRESS)
+                lightYawDegrees += lightSpeed * deltaTime;
+
+            // I / K : 광원 상하 회전
+            if (glfwGetKey(window, GLFW_KEY_I) == GLFW_PRESS)
+                lightPitchDegrees += lightSpeed * deltaTime;
+
+            if (glfwGetKey(window, GLFW_KEY_K) == GLFW_PRESS)
+                lightPitchDegrees -= lightSpeed * deltaTime;
+
+            // 극단적인 수직 방향 제한
+            lightPitchDegrees = glm::clamp(
+                lightPitchDegrees, -89.0f, 89.0f
+            );
+
+            // R : 기본 광원 방향으로 초기화
+            if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS)
+            {
+                lightYawDegrees = -26.565f;
+                lightPitchDegrees = 50.0f;
+            }
 
 
             // ===== 마이크 ON / OFF =====
@@ -242,6 +277,31 @@ int main(int argc, char** argv)
                 "view",
                 camera.getViewMatrix()
             );
+
+
+            // ===== 방향광 벡터 계산 =====
+
+            const float yaw =
+                glm::radians(lightYawDegrees);
+
+            const float pitch =
+                glm::radians(lightPitchDegrees);
+
+            glm::vec3 lightDir(
+                std::cos(pitch) * std::sin(yaw),
+                std::sin(pitch),
+                std::cos(pitch) * std::cos(yaw)
+            );
+
+            // 기존 Shader::setVec4() 재사용
+            shader.setVec4(
+                "lightDirection",
+                glm::vec4(glm::normalize(lightDir), 0.0f)
+            );
+
+            // 기존 모델 렌더링
+            model.draw(shader, modelMatrix);
+
 
             shader.setMat4(
                 "projection",
